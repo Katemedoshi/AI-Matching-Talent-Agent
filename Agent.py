@@ -465,14 +465,34 @@ def render_header():
     """, unsafe_allow_html=True)
 
 def render_sidebar():
-    """Enhanced sidebar with agent information"""
+    """Enhanced sidebar with agent information and navigation"""
     st.sidebar.title("🚀 Navigation")
     st.sidebar.markdown("---")
     
+    # Initialize current page in session state
+    if 'current_page' not in st.session_state:
+        st.session_state['current_page'] = "🏠 Dashboard"
+    
+    # Get the current page selection
+    page_options = ["🏠 Dashboard", "🎯 AI Matching", "👥 Employees", "📋 Projects", "📊 Analytics", "🤖 AI Agents Info"]
+    
+    # Find current page index
+    try:
+        current_index = page_options.index(st.session_state['current_page'])
+    except ValueError:
+        current_index = 0
+        st.session_state['current_page'] = "🏠 Dashboard"
+    
     page = st.sidebar.selectbox(
         "Navigate to:",
-        ["🏠 Dashboard", "🎯 AI Matching", "👥 Employees", "📋 Projects", "📊 Analytics", "🤖 AI Agents Info"]
+        page_options,
+        index=current_index
     )
+    
+    # Update session state if selection changed
+    if page != st.session_state['current_page']:
+        st.session_state['current_page'] = page
+        st.rerun()
     
     st.sidebar.markdown("---")
     
@@ -489,10 +509,10 @@ def render_sidebar():
         "Each agent analyzes different aspects and the Master Agent combines their insights for the best recommendations."
     )
     
-    return page
+    return st.session_state['current_page']
 
 def render_dashboard():
-    """Enhanced dashboard with better visualizations"""
+    """Enhanced dashboard with better visualizations and fixed navigation"""
     render_header()
     
     # Load data
@@ -518,19 +538,22 @@ def render_dashboard():
     
     st.markdown("---")
     
-    # Quick actions
+    # Quick actions with session state navigation
     st.markdown("### 🚀 Quick Actions")
     col1, col2, col3 = st.columns(3)
     
     with col1:
         if st.button("🎯 Run AI Matching", type="primary", use_container_width=True):
-            st.switch_page("🎯 AI Matching")
+            st.session_state['current_page'] = "🎯 AI Matching"
+            st.rerun()
     with col2:
         if st.button("👥 Add New Employee", use_container_width=True):
-            st.switch_page("👥 Employees")
+            st.session_state['current_page'] = "👥 Employees"
+            st.rerun()
     with col3:
         if st.button("📋 Create New Project", use_container_width=True):
-            st.switch_page("📋 Projects")
+            st.session_state['current_page'] = "📋 Projects"
+            st.rerun()
     
     st.markdown("---")
     
@@ -663,919 +686,457 @@ def render_matching_page():
         if availability_filter != "All":
             filtered_employees = [e for e in employees if e.availability == availability_filter]
         
-        status_text.text('🧠 AI agents analyzing matches...')
-        progress_bar.progress(70)
+        status_text.text('🧠 Calculating matches with AI agents...')
+        progress_bar.progress(60)
         
         # Find matches
-        matches = master_agent.find_matches(filtered_employees, filtered_projects, min_score)
+        matches = master_agent.find_matches(filtered_employees, filtered_projects, min_score, max_results)
         
-        status_text.text('✅ Analysis complete!')
-        progress_bar.progress(100)
-        
-        # Clear progress indicators
-        progress_bar.empty()
-        status_text.empty()
+        status_text.text('📊 Preparing results visualization...')
+        progress_bar.progress(80)
         
         # Display results
-        if matches:
-            st.success(f"🎉 Found {len(matches)} high-quality matches!")
+        st.markdown("### 📊 Matching Results")
+        
+        if not matches:
+            st.warning("❌ No matches found with the current criteria. Try adjusting your filters.")
+        else:
+            # Create DataFrame for visualization
+            match_data = []
+            for match in matches:
+                emp = next((e for e in employees if e.id == match.employee_id), None)
+                proj = next((p for p in projects if p.id == match.project_id), None)
+                
+                if emp and proj:
+                    match_data.append({
+                        'Employee': emp.name,
+                        'Project': proj.name,
+                        'Score': match.match_score,
+                        'Skill Match': match.skill_match,
+                        'Availability Match': match.availability_match,
+                        'Experience Match': match.experience_match,
+                        'Location Match': match.location_match,
+                        'Confidence': match.confidence_level,
+                        'Reasoning': match.reasoning
+                    })
             
-            # Summary statistics
-            col1, col2, col3, col4 = st.columns(4)
+            match_df = pd.DataFrame(match_data)
+            
+            # Display metrics
+            col1, col2, col3 = st.columns(3)
             with col1:
-                avg_score = sum(m.match_score for m in matches) / len(matches)
-                st.metric("Average Score", f"{avg_score:.2f}")
+                st.metric("🎯 Total Matches", len(matches))
             with col2:
-                high_confidence = len([m for m in matches if m.confidence_level == "High"])
-                st.metric("High Confidence", high_confidence)
+                avg_score = match_df['Score'].mean() if not match_df.empty else 0
+                st.metric("📈 Average Match Score", f"{avg_score:.2f}")
             with col3:
-                perfect_matches = len([m for m in matches if m.match_score >= 0.9])
-                st.metric("Perfect Matches", perfect_matches)
-            with col4:
-                unique_employees = len(set(m.employee_id for m in matches))
-                st.metric("Employees Matched", unique_employees)
+                high_conf = len(match_df[match_df['Confidence'] == 'High']) if not match_df.empty else 0
+                st.metric("✅ High Confidence", high_conf)
             
-            st.markdown("### 🎯 Match Results")
+            st.markdown("---")
             
-            # Display matches in groups by project
-            current_project = None
-            for i, match in enumerate(matches[:max_results * len(filtered_projects)]):
-                employee = next(e for e in employees if e.id == match.employee_id)
-                project = next(p for p in projects if p.id == match.project_id)
-                
-                # Project header
-                if current_project != project.id:
-                    current_project = project.id
-                    st.markdown(f"#### 📋 {project.name}")
-                    col1, col2, col3 = st.columns([2, 1, 1])
-                    with col1:
-                        st.markdown(f"*{project.description}*")
-                    with col2:
-                        st.markdown(f"**Urgency:** {project.urgency}")
-                    with col3:
-                        st.markdown(f"**Duration:** {project.duration_months}m")
-                
-                # Match card
-                with st.container():
-                    st.markdown(f"""
-                    <div class="match-card">
-                        <h4>🏆 Match #{i+1}: {employee.name} 
-                        <span style="float:right; color: {'#4CAF50' if match.confidence_level == 'High' else '#FF9800' if match.confidence_level == 'Medium' else '#F44336'}">
-                            {match.match_score:.2f} ({match.confidence_level} Confidence)
-                        </span></h4>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
+            # Interactive visualization
+            st.markdown("#### 📈 Match Score Distribution")
+            fig = px.histogram(match_df, x='Score', title="Distribution of Match Scores",
+                              color='Confidence', color_discrete_map={'High': '#4CAF50', 'Medium': '#FF9800', 'Low': '#F44336'})
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Detailed results
+            st.markdown("#### 📋 Detailed Match Results")
+            
+            for idx, row in match_df.iterrows():
+                with st.expander(f"👤 {row['Employee']} → 🎯 {row['Project']} | Score: {row['Score']:.2f} | Confidence: {row['Confidence']}"):
                     col1, col2 = st.columns(2)
                     
                     with col1:
-                        st.markdown("**👤 Employee Profile:**")
-                        st.write(f"**Name:** {employee.name}")
-                        st.write(f"**Role:** {employee.current_role}")
-                        st.write(f"**Experience:** {employee.experience_years} years")
-                        st.write(f"**Skills:** {', '.join(employee.skills[:4])}{'...' if len(employee.skills) > 4 else ''}")
-                        st.write(f"**Availability:** {employee.availability}")
-                        st.write(f"**Location:** {employee.location}")
-                        st.write(f"**Performance Rating:** ⭐ {employee.performance_rating}/5.0")
-                        if employee.certifications:
-                            st.write(f"**Certifications:** {', '.join(employee.certifications[:2])}{'...' if len(employee.certifications) > 2 else ''}")
+                        st.markdown("**📊 Component Scores:**")
+                        st.markdown(f"- 🎯 Skill Match: `{row['Skill Match']:.2f}`")
+                        st.markdown(f"- 📅 Availability: `{row['Availability Match']:.2f}`")
+                        st.markdown(f"- 👨‍💼 Experience: `{row['Experience Match']:.2f}`")
+                        st.markdown(f"- 🗺️ Location: `{row['Location Match']:.2f}`")
                     
                     with col2:
-                        st.markdown("**📋 Project Requirements:**")
-                        st.write(f"**Duration:** {project.duration_months} months")
-                        st.write(f"**Required Skills:** {', '.join(project.required_skills)}")
-                        st.write(f"**Experience Needed:** {project.experience_required} years")
-                        st.write(f"**Team Size:** {project.team_size} members")
-                        st.write(f"**Location:** {project.location}")
-                        st.write(f"**Client Type:** {project.client_type}")
-                        st.write(f"**Budget:** {project.budget_category}")
-                    
-                    # Detailed scoring
-                    st.markdown("**🤖 AI Agent Analysis:**")
-                    col3, col4, col5, col6 = st.columns(4)
-                    
-                    def get_score_color(score):
-                        if score >= 0.8: return "#4CAF50"
-                        elif score >= 0.6: return "#FF9800"
-                        else: return "#F44336"
-                    
-                    with col3:
-                        color = get_score_color(match.skill_match)
-                        st.markdown(f"<div style='text-align:center'><h4 style='color:{color}'>{match.skill_match:.2f}</h4><p>Skill Match</p></div>", unsafe_allow_html=True)
-                    with col4:
-                        color = get_score_color(match.availability_match)
-                        st.markdown(f"<div style='text-align:center'><h4 style='color:{color}'>{match.availability_match:.2f}</h4><p>Availability</p></div>", unsafe_allow_html=True)
-                    with col5:
-                        color = get_score_color(match.experience_match)
-                        st.markdown(f"<div style='text-align:center'><h4 style='color:{color}'>{match.experience_match:.2f}</h4><p>Experience</p></div>", unsafe_allow_html=True)
-                    with col6:
-                        color = get_score_color(match.location_match)
-                        st.markdown(f"<div style='text-align:center'><h4 style='color:{color}'>{match.location_match:.2f}</h4><p>Location</p></div>", unsafe_allow_html=True)
-                    
-                    # AI Reasoning
-                    if show_reasoning:
-                        st.markdown("**🧠 AI Agent Reasoning:**")
-                        reasoning_parts = match.reasoning.split(" | ")
-                        for part in reasoning_parts:
-                            st.markdown(f"• {part}")
-                    
-                    # Action buttons
-                    col7, col8, col9 = st.columns([1, 1, 2])
-                    with col7:
-                        if st.button(f"✅ Assign", key=f"assign_{i}", type="primary"):
-                            st.success("✅ Assignment request sent to project manager!")
-                            st.balloons()
-                    with col8:
-                        if st.button(f"📧 Contact", key=f"contact_{i}"):
-                            st.info(f"📧 Opening email to {employee.email}")
-                    with col9:
-                        if st.button(f"📊 View Full Profile", key=f"profile_{i}"):
-                            st.info("Redirecting to detailed employee profile...")
-                    
-                    st.markdown("---")
-        else:
-            st.warning("🔍 No matches found with current criteria. Try adjusting the filters or lowering the minimum score.")
+                        st.markdown("**🤖 AI Reasoning:**")
+                        if show_reasoning:
+                            st.info(row['Reasoning'])
+                        else:
+                            st.info("Enable 'Show AI Reasoning' to view detailed analysis")
             
-            # Suggestions
-            st.markdown("### 💡 Suggestions:")
-            st.markdown("""
-            - Lower the minimum match score
-            - Remove some filters to broaden the search
-            - Check if there are available employees
-            - Consider projects with different urgency levels
-            """)
+            # Download option
+            st.markdown("---")
+            st.download_button(
+                label="📥 Download Results as CSV",
+                data=match_df.to_csv(index=False),
+                file_name="ai_matching_results.csv",
+                mime="text/csv"
+            )
+        
+        progress_bar.progress(100)
+        status_text.text('✅ Matching analysis completed!')
 
-def render_employee_management():
-    """Enhanced employee management with better forms"""
-    st.title("👥 Employee Management Hub")
+def render_employees_page():
+    """Enhanced employee management page"""
+    st.title("👥 Employee Management")
     
-    # Initialize employees in session state
-    if 'employees' not in st.session_state:
-        st.session_state.employees = DataManager.get_sample_employees()
+    # Load data
+    employees = st.session_state.get('employees', DataManager.get_sample_employees())
     
-    tab1, tab2, tab3 = st.tabs(["📋 View All Employees", "➕ Add New Employee", "📊 Employee Analytics"])
+    # Display employee list
+    st.markdown("### 📋 Employee Directory")
     
-    with tab1:
-        st.markdown("### Current Employee Database")
-        
-        # Search and filter options
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            search_term = st.text_input("🔍 Search by name or skills", "")
-        with col2:
-            location_filter = st.selectbox("📍 Filter by location", 
-                ["All Locations"] + list(set(emp.location for emp in st.session_state.employees)))
-        with col3:
-            availability_filter = st.selectbox("✅ Filter by availability", 
-                ["All", "Available", "Partial", "Busy"])
-        
-        # Filter employees
-        filtered_employees = st.session_state.employees
-        
-        if search_term:
-            filtered_employees = [emp for emp in filtered_employees 
-                                if search_term.lower() in emp.name.lower() or 
-                                   any(search_term.lower() in skill.lower() for skill in emp.skills)]
-        
-        if location_filter != "All Locations":
-            filtered_employees = [emp for emp in filtered_employees if emp.location == location_filter]
-            
-        if availability_filter != "All":
-            filtered_employees = [emp for emp in filtered_employees if emp.availability == availability_filter]
-        
-        # Display enhanced employee cards
-        for emp in filtered_employees:
-            with st.expander(f"👤 {emp.name} - {emp.current_role}"):
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.markdown("**📊 Basic Information:**")
-                    st.write(f"**Email:** {emp.email}")
-                    st.write(f"**Experience:** {emp.experience_years} years")
-                    st.write(f"**Location:** {emp.location}")
-                    st.write(f"**Availability:** {emp.availability}")
-                    st.write(f"**Performance:** ⭐ {emp.performance_rating}/5.0")
-                    st.write(f"**Salary Range:** {emp.salary_range}")
-                
-                with col2:
-                    st.markdown("**🛠️ Skills & Expertise:**")
-                    # Display skills as badges
-                    skills_html = ""
-                    for skill in emp.skills:
-                        skills_html += f'<span style="background:#e1f5fe; padding:4px 8px; margin:2px; border-radius:12px; font-size:12px;">{skill}</span> '
-                    st.markdown(skills_html, unsafe_allow_html=True)
-                    
-                    st.markdown("**🎯 Career Interests:**")
-                    for interest in emp.career_interests:
-                        st.write(f"• {interest}")
-                    
-                    if emp.certifications:
-                        st.markdown("**📜 Certifications:**")
-                        for cert in emp.certifications:
-                            st.write(f"🏆 {cert}")
-    
-    with tab2:
-        st.markdown("### Add New Team Member")
-        
-        with st.form("add_employee", clear_on_submit=True):
+    for emp in employees:
+        with st.expander(f"👤 {emp.name} - {emp.current_role}"):
             col1, col2 = st.columns(2)
             
             with col1:
-                name = st.text_input("👤 Full Name *", placeholder="e.g., John Smith")
-                email = st.text_input("📧 Email Address *", placeholder="john.smith@company.com")
-                current_role = st.text_input("💼 Current Role *", placeholder="e.g., Senior Developer")
-                experience = st.slider("📈 Years of Experience", 0, 30, 3)
-                performance = st.slider("⭐ Performance Rating", 1.0, 5.0, 3.5, 0.1)
-            
+                st.markdown(f"**📧 Email:** {emp.email}")
+                st.markdown(f"**📍 Location:** {emp.location}")
+                st.markdown(f"**📅 Availability:** {emp.availability}")
+                st.markdown(f"**⭐ Performance Rating:** {emp.performance_rating}")
+                
             with col2:
-                location = st.selectbox("📍 Location", 
-                    ["Bangalore", "Mumbai", "Delhi", "Hyderabad", "Chennai", "Pune", "Remote", "Other"])
-                availability = st.selectbox("✅ Current Availability", 
-                    ["Available", "Partial", "Busy"])
-                salary_range = st.selectbox("💰 Salary Range", 
-                    ["₹5-8L", "₹8-12L", "₹12-15L", "₹15-20L", "₹20-25L", "₹25L+", "Not Specified"])
-                last_project = st.date_input("📅 Last Project End Date", 
-                    value=datetime.now() - timedelta(days=30))
-            
-            skills = st.text_area("🛠️ Technical Skills *", 
-                placeholder="Python, Machine Learning, AWS, Docker, Kubernetes",
-                help="Enter skills separated by commas")
-            
-            interests = st.text_area("🎯 Career Interests", 
-                placeholder="AI/ML, Cloud Architecture, Team Leadership",
-                help="Enter career interests separated by commas")
-            
-            certifications = st.text_area("📜 Certifications", 
-                placeholder="AWS Certified Solutions Architect, Scrum Master",
-                help="Enter certifications separated by commas")
-            
-            col3, col4 = st.columns(2)
-            with col3:
-                submitted = st.form_submit_button("✅ Add Employee", type="primary", use_container_width=True)
-            with col4:
-                st.form_submit_button("🔄 Clear Form", use_container_width=True)
-            
-            if submitted:
-                if name and email and current_role and skills:
-                    new_employee = Employee(
-                        id=f"emp_{str(uuid.uuid4())[:8]}",
-                        name=name,
-                        email=email,
-                        skills=[s.strip() for s in skills.split(",") if s.strip()],
-                        experience_years=experience,
-                        current_role=current_role,
-                        availability=availability,
-                        career_interests=[i.strip() for i in interests.split(",") if i.strip()],
-                        location=location,
-                        performance_rating=performance,
-                        last_project_end=last_project.strftime("%Y-%m-%d"),
-                        salary_range=salary_range,
-                        certifications=[c.strip() for c in certifications.split(",") if c.strip()]
-                    )
-                    st.session_state.employees.append(new_employee)
-                    st.success(f"🎉 {name} has been successfully added to the team!")
-                    st.balloons()
-                    st.rerun()
-                else:
-                    st.error("❌ Please fill in all required fields marked with *")
+                st.markdown(f"**👨‍💼 Experience:** {emp.experience_years} years")
+                st.markdown(f"**💰 Salary Range:** {emp.salary_range}")
+                st.markdown(f"**📅 Last Project End:** {emp.last_project_end}")
+                
+            st.markdown("**🛠️ Skills:** " + ", ".join(emp.skills))
+            st.markdown("**🎯 Career Interests:** " + ", ".join(emp.career_interests))
+            if emp.certifications:
+                st.markdown("**📜 Certifications:** " + ", ".join(emp.certifications))
     
-    with tab3:
-        st.markdown("### Employee Analytics Dashboard")
-        
-        employees = st.session_state.employees
-        
-        # Key metrics
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            avg_experience = sum(emp.experience_years for emp in employees) / len(employees)
-            st.metric("📈 Avg Experience", f"{avg_experience:.1f} years")
-        with col2:
-            avg_performance = sum(emp.performance_rating for emp in employees) / len(employees)
-            st.metric("⭐ Avg Performance", f"{avg_performance:.1f}/5.0")
-        with col3:
-            available_count = len([e for e in employees if e.availability == "Available"])
-            st.metric("✅ Available Now", f"{available_count}/{len(employees)}")
-        with col4:
-            certified_count = len([e for e in employees if e.certifications])
-            st.metric("📜 With Certifications", f"{certified_count}/{len(employees)}")
-        
-        # Visualizations
+    # Add new employee form
+    st.markdown("---")
+    st.markdown("### ➕ Add New Employee")
+    
+    with st.form("add_employee_form"):
         col1, col2 = st.columns(2)
         
         with col1:
-            # Experience distribution
-            exp_data = [emp.experience_years for emp in employees]
-            fig = px.histogram(x=exp_data, nbins=10, title="Experience Distribution",
-                             labels={'x': 'Years of Experience', 'y': 'Number of Employees'})
-            st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
-            # Performance vs Experience
-            perf_exp_data = [(emp.experience_years, emp.performance_rating, emp.name) for emp in employees]
-            df = pd.DataFrame(perf_exp_data, columns=['Experience', 'Performance', 'Name'])
-            fig = px.scatter(df, x='Experience', y='Performance', hover_data=['Name'],
-                           title="Performance vs Experience")
-            st.plotly_chart(fig, use_container_width=True)
-        
-        # Top skills analysis
-        st.markdown("### 🛠️ Skills Analysis")
-        skill_counts = {}
-        for emp in employees:
-            for skill in emp.skills:
-                skill_counts[skill] = skill_counts.get(skill, 0) + 1
-        
-        if skill_counts:
-            top_skills = sorted(skill_counts.items(), key=lambda x: x[1], reverse=True)[:15]
-            skills_df = pd.DataFrame(top_skills, columns=['Skill', 'Count'])
-            fig = px.bar(skills_df, x='Count', y='Skill', orientation='h',
-                        title="Most Common Skills in Team")
-            fig.update_layout(height=500)
-            st.plotly_chart(fig, use_container_width=True)
-
-def render_project_management():
-    """Enhanced project management interface"""
-    st.title("📋 Project Management Hub")
-    
-    # Initialize projects in session state
-    if 'projects' not in st.session_state:
-        st.session_state.projects = DataManager.get_sample_projects()
-    
-    tab1, tab2, tab3 = st.tabs(["📊 Active Projects", "🆕 Create Project", "📈 Project Analytics"])
-    
-    with tab1:
-        st.markdown("### Active Project Portfolio")
-        
-        projects = st.session_state.projects
-        
-        # Filter and search options
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            search_term = st.text_input("🔍 Search projects", "")
-        with col2:
-            urgency_filter = st.selectbox("🚨 Filter by urgency", ["All", "High", "Medium", "Low"])
-        with col3:
-            client_filter = st.selectbox("👥 Filter by client type", 
-                ["All"] + list(set(proj.client_type for proj in projects)))
-        
-        # Apply filters
-        filtered_projects = projects
-        if search_term:
-            filtered_projects = [proj for proj in filtered_projects 
-                               if search_term.lower() in proj.name.lower() or 
-                                  search_term.lower() in proj.description.lower()]
-        if urgency_filter != "All":
-            filtered_projects = [proj for proj in filtered_projects if proj.urgency == urgency_filter]
-        if client_filter != "All":
-            filtered_projects = [proj for proj in filtered_projects if proj.client_type == client_filter]
-        
-        # Display project cards
-        for proj in filtered_projects:
-            urgency_colors = {"High": "#ffebee", "Medium": "#fff3e0", "Low": "#e8f5e8"}
-            urgency_text_colors = {"High": "#c62828", "Medium": "#ef6c00", "Low": "#2e7d32"}
+            name = st.text_input("Full Name")
+            email = st.text_input("Email")
+            location = st.text_input("Location")
+            current_role = st.text_input("Current Role")
+            experience = st.number_input("Years of Experience", min_value=0, max_value=50, value=3)
             
-            with st.container():
-                st.markdown(f"""
-                <div style="background: {urgency_colors[proj.urgency]}; padding: 1rem; border-radius: 8px; margin: 1rem 0; border-left: 4px solid {urgency_text_colors[proj.urgency]};">
-                    <h4 style="color: {urgency_text_colors[proj.urgency]}; margin: 0;">{proj.name}</h4>
-                    <p style="margin: 0.5rem 0; color: #666;">{proj.description}</p>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.markdown("**📊 Project Details:**")
-                    st.write(f"**Duration:** {proj.duration_months} months")
-                    st.write(f"**Team Size:** {proj.team_size} members")
-                    st.write(f"**Start Date:** {proj.start_date}")
-                    st.write(f"**Location:** {proj.location}")
-                    st.write(f"**Experience Required:** {proj.experience_required}+ years")
-                
-                with col2:
-                    st.markdown("**💼 Requirements:**")
-                    st.write(f"**Budget Category:** {proj.budget_category}")
-                    st.write(f"**Client Type:** {proj.client_type}")
-                    st.write(f"**Urgency Level:** {proj.urgency}")
-                    
-                    # Required skills as badges
-                    st.markdown("**Required Skills:**")
-                    skills_html = ""
-                    for skill in proj.required_skills:
-                        skills_html += f'<span style="background:#e3f2fd; color:#1976d2; padding:4px 8px; margin:2px; border-radius:12px; font-size:12px;">{skill}</span> '
-                    st.markdown(skills_html, unsafe_allow_html=True)
-                
-                # Action buttons
-                col3, col4, col5 = st.columns(3)
-                with col3:
-                    if st.button(f"🎯 Find Matches", key=f"match_{proj.id}", type="primary"):
-                        st.session_state['selected_project'] = proj.name
-                        st.info("Redirecting to AI Matching...")
-                with col4:
-                    if st.button(f"✏️ Edit Project", key=f"edit_{proj.id}"):
-                        st.info("Edit functionality coming soon!")
-                with col5:
-                    if st.button(f"📈 View Analytics", key=f"analytics_{proj.id}"):
-                        st.info("Project-specific analytics coming soon!")
-                
-                st.markdown("---")
-    
-    with tab2:
-        st.markdown("### Create New Project")
+        with col2:
+            availability = st.selectbox("Availability", ["Available", "Partial", "Busy"])
+            performance = st.slider("Performance Rating", 1.0, 5.0, 4.0, 0.1)
+            last_project_end = st.date_input("Last Project End Date", datetime.now().date())
+            salary_range = st.text_input("Salary Range")
+            
+        skills = st.text_input("Skills (comma separated)")
+        career_interests = st.text_input("Career Interests (comma separated)")
+        certifications = st.text_input("Certifications (comma separated)")
         
-        with st.form("add_project", clear_on_submit=True):
-            st.markdown("#### 📋 Basic Information")
+        submitted = st.form_submit_button("Add Employee")
+        
+        if submitted:
+            if name and email:
+                new_employee = Employee(
+                    id=f"emp_{len(employees)+1:03d}",
+                    name=name,
+                    email=email,
+                    skills=[s.strip() for s in skills.split(",")] if skills else [],
+                    experience_years=experience,
+                    current_role=current_role,
+                    availability=availability,
+                    career_interests=[i.strip() for i in career_interests.split(",")] if career_interests else [],
+                    location=location,
+                    performance_rating=performance,
+                    last_project_end=last_project_end.strftime("%Y-%m-%d"),
+                    salary_range=salary_range,
+                    certifications=[c.strip() for c in certifications.split(",")] if certifications else []
+                )
+                
+                employees.append(new_employee)
+                st.session_state.employees = employees
+                st.success(f"✅ Employee {name} added successfully!")
+                st.rerun()
+            else:
+                st.error("❌ Name and email are required fields")
+
+def render_projects_page():
+    """Enhanced project management page"""
+    st.title("📋 Project Management")
+    
+    # Load data
+    projects = st.session_state.get('projects', DataManager.get_sample_projects())
+    
+    # Display project list
+    st.markdown("### 📋 Project Directory")
+    
+    for proj in projects:
+        with st.expander(f"🎯 {proj.name} - {proj.urgency} Priority"):
             col1, col2 = st.columns(2)
             
             with col1:
-                name = st.text_input("📝 Project Name *", placeholder="e.g., E-commerce AI Platform")
-                client_type = st.selectbox("👥 Client Type *", 
-                    ["Enterprise", "Startup", "Government", "Healthcare", "Banking", "E-commerce", "Other"])
-                urgency = st.selectbox("🚨 Urgency Level *", ["High", "Medium", "Low"])
-                budget_category = st.selectbox("💰 Budget Category *", ["High", "Medium", "Low"])
-            
+                st.markdown(f"**📝 Description:** {proj.description}")
+                st.markdown(f"**📍 Location:** {proj.location}")
+                st.markdown(f"**⏱️ Duration:** {proj.duration_months} months")
+                st.markdown(f"**👥 Team Size:** {proj.team_size} people")
+                
             with col2:
-                duration = st.slider("⏱️ Duration (months)", 1, 24, 6)
-                team_size = st.slider("👥 Team Size", 1, 20, 4)
-                experience_req = st.slider("📈 Min Experience Required (years)", 0, 15, 3)
-                start_date = st.date_input("📅 Expected Start Date", 
-                    value=datetime.now() + timedelta(days=30))
-            
-            description = st.text_area("📋 Project Description *", 
-                placeholder="Detailed description of project goals, scope, and deliverables...",
-                height=100)
-            
-            st.markdown("#### 🛠️ Technical Requirements")
-            col3, col4 = st.columns(2)
-            
-            with col3:
-                required_skills = st.text_area("💻 Required Technical Skills *", 
-                    placeholder="Python, React, AWS, Docker, Machine Learning",
-                    help="Enter skills separated by commas")
-                location = st.selectbox("📍 Project Location *", 
-                    ["Remote", "Bangalore", "Mumbai", "Delhi", "Hyderabad", "Chennai", "Pune", "Hybrid"])
-            
-            with col4:
-                nice_to_have = st.text_area("✨ Nice-to-have Skills", 
-                    placeholder="GraphQL, Kubernetes, Microservices",
-                    help="Additional skills that would be beneficial")
-                priority_score = st.slider("⭐ Priority Score", 0.1, 2.0, 1.0, 0.1,
-                    help="Higher values indicate higher priority projects")
-            
-            # Form submission
-            col5, col6 = st.columns(2)
-            with col5:
-                submitted = st.form_submit_button("🚀 Create Project", type="primary", use_container_width=True)
-            with col6:
-                st.form_submit_button("🔄 Clear Form", use_container_width=True)
-            
-            if submitted:
-                if name and description and required_skills and client_type:
-                    new_project = Project(
-                        id=f"proj_{str(uuid.uuid4())[:8]}",
-                        name=name,
-                        description=description,
-                        required_skills=[s.strip() for s in required_skills.split(",") if s.strip()],
-                        duration_months=duration,
-                        urgency=urgency,
-                        location=location,
-                        team_size=team_size,
-                        experience_required=experience_req,
-                        budget_category=budget_category,
-                        client_type=client_type,
-                        start_date=start_date.strftime("%Y-%m-%d"),
-                        priority_score=priority_score
-                    )
-                    st.session_state.projects.append(new_project)
-                    st.success(f"🎉 Project '{name}' created successfully!")
-                    st.balloons()
-                    st.rerun()
-                else:
-                    st.error("❌ Please fill in all required fields marked with *")
+                st.markdown(f"**🚨 Urgency:** {proj.urgency}")
+                st.markdown(f"**👨‍💼 Experience Required:** {proj.experience_required} years")
+                st.markdown(f"**💰 Budget Category:** {proj.budget_category}")
+                st.markdown(f"**🏢 Client Type:** {proj.client_type}")
+                st.markdown(f"**📅 Start Date:** {proj.start_date}")
+                
+            st.markdown("**🛠️ Required Skills:** " + ", ".join(proj.required_skills))
     
-    with tab3:
-        render_project_analytics()
-
-def render_project_analytics():
-    """Project analytics dashboard"""
-    projects = st.session_state.get('projects', DataManager.get_sample_projects())
+    # Add new project form
+    st.markdown("---")
+    st.markdown("### ➕ Add New Project")
     
-    # Key metrics
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        avg_duration = sum(proj.duration_months for proj in projects) / len(projects)
-        st.metric("📅 Avg Duration", f"{avg_duration:.1f} months")
-    with col2:
-        urgent_projects = len([p for p in projects if p.urgency == "High"])
-        st.metric("🚨 Urgent Projects", urgent_projects)
-    with col3:
-        total_team_size = sum(proj.team_size for proj in projects)
-        st.metric("👥 Total Team Needs", total_team_size)
-    with col4:
-        remote_projects = len([p for p in projects if "remote" in p.location.lower()])
-        st.metric("🏠 Remote Projects", remote_projects)
-    
-    # Visualizations
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        # Urgency distribution
-        urgency_data = {}
-        for proj in projects:
-            urgency_data[proj.urgency] = urgency_data.get(proj.urgency, 0) + 1
+    with st.form("add_project_form"):
+        col1, col2 = st.columns(2)
         
-        fig = px.pie(values=list(urgency_data.values()), names=list(urgency_data.keys()),
-                    title="Project Urgency Distribution",
-                    color_discrete_map={'High': '#F44336', 'Medium': '#FF9800', 'Low': '#4CAF50'})
-        st.plotly_chart(fig, use_container_width=True)
-    
-    with col2:
-        # Client type distribution
-        client_data = {}
-        for proj in projects:
-            client_data[proj.client_type] = client_data.get(proj.client_type, 0) + 1
+        with col1:
+            name = st.text_input("Project Name")
+            description = st.text_area("Description")
+            location = st.text_input("Location")
+            duration = st.number_input("Duration (months)", min_value=1, max_value=36, value=6)
+            team_size = st.number_input("Team Size", min_value=1, max_value=20, value=3)
+            
+        with col2:
+            urgency = st.selectbox("Urgency", ["High", "Medium", "Low"])
+            experience_required = st.number_input("Experience Required (years)", min_value=0, max_value=30, value=3)
+            budget_category = st.selectbox("Budget Category", ["High", "Medium", "Low"])
+            client_type = st.text_input("Client Type")
+            start_date = st.date_input("Start Date", datetime.now().date() + timedelta(days=30))
+            
+        required_skills = st.text_input("Required Skills (comma separated)")
         
-        fig = px.bar(x=list(client_data.keys()), y=list(client_data.values()),
-                    title="Projects by Client Type")
-        st.plotly_chart(fig, use_container_width=True)
-    
-    # Skills demand analysis
-    st.markdown("### 🛠️ Skills Demand Analysis")
-    skill_demand = {}
-    for proj in projects:
-        for skill in proj.required_skills:
-            skill_demand[skill] = skill_demand.get(skill, 0) + 1
-    
-    if skill_demand:
-        top_skills = sorted(skill_demand.items(), key=lambda x: x[1], reverse=True)[:15]
-        skills_df = pd.DataFrame(top_skills, columns=['Skill', 'Demand'])
-        fig = px.bar(skills_df, x='Demand', y='Skill', orientation='h',
-                    title="Most In-Demand Skills Across Projects")
-        fig.update_layout(height=500)
-        st.plotly_chart(fig, use_container_width=True)
+        submitted = st.form_submit_button("Add Project")
+        
+        if submitted:
+            if name and description:
+                new_project = Project(
+                    id=f"proj_{len(projects)+1:03d}",
+                    name=name,
+                    description=description,
+                    required_skills=[s.strip() for s in required_skills.split(",")] if required_skills else [],
+                    duration_months=duration,
+                    urgency=urgency,
+                    location=location,
+                    team_size=team_size,
+                    experience_required=experience_required,
+                    budget_category=budget_category,
+                    client_type=client_type,
+                    start_date=start_date.strftime("%Y-%m-%d")
+                )
+                
+                projects.append(new_project)
+                st.session_state.projects = projects
+                st.success(f"✅ Project {name} added successfully!")
+                st.rerun()
+            else:
+                st.error("❌ Project name and description are required fields")
 
-def render_analytics():
-    """Enhanced analytics dashboard"""
-    st.title("📊 Advanced Analytics Dashboard")
+def render_analytics_page():
+    """Enhanced analytics page with visualizations"""
+    st.title("📊 Analytics & Insights")
     
+    # Load data
     employees = st.session_state.get('employees', DataManager.get_sample_employees())
     projects = st.session_state.get('projects', DataManager.get_sample_projects())
     
-    # Overall system metrics
-    st.markdown("### 🎯 System Overview")
-    col1, col2, col3, col4, col5 = st.columns(5)
+    # Skill analysis
+    st.markdown("### 🛠️ Skill Analysis")
+    
+    # Extract all skills
+    all_skills = []
+    for emp in employees:
+        all_skills.extend(emp.skills)
+    
+    skill_counts = pd.Series(all_skills).value_counts().head(10)
+    
+    col1, col2 = st.columns(2)
     
     with col1:
-        st.metric("👥 Total Employees", len(employees))
+        fig = px.bar(x=skill_counts.values, y=skill_counts.index, orientation='h',
+                    title="Top 10 Skills in Workforce",
+                    labels={'x': 'Count', 'y': 'Skill'})
+        st.plotly_chart(fig, use_container_width=True)
+    
     with col2:
-        st.metric("📋 Active Projects", len(projects))
-    with col3:
-        total_skills = len(set(skill for emp in employees for skill in emp.skills))
-        st.metric("🛠️ Unique Skills", total_skills)
-    with col4:
-        avg_team_size = sum(proj.team_size for proj in projects) / len(projects) if projects else 0
-        st.metric("👥 Avg Team Size", f"{avg_team_size:.1f}")
-    with col5:
-        skill_coverage = len(set(skill for emp in employees for skill in emp.skills).intersection(
-            set(skill for proj in projects for skill in proj.required_skills)))
-        st.metric("📈 Skill Coverage", f"{skill_coverage}")
-    
-    # Advanced visualizations
-    st.markdown("### 📈 Advanced Analytics")
-    
-    tab1, tab2, tab3 = st.tabs(["🎯 Skills Gap Analysis", "👥 Team Composition", "📊 Matching Insights"])
-    
-    with tab1:
-        st.markdown("#### Skills Supply vs Demand")
-        
-        # Calculate supply and demand
-        supply = {}
-        demand = {}
-        
-        for emp in employees:
-            for skill in emp.skills:
-                supply[skill] = supply.get(skill, 0) + 1
-        
+        # Skill gaps analysis
+        required_skills = []
         for proj in projects:
-            for skill in proj.required_skills:
-                demand[skill] = demand.get(skill, 0) + 1
+            required_skills.extend(proj.required_skills)
         
-        # Create comparison dataframe
-        all_skills = set(supply.keys()) | set(demand.keys())
-        comparison_data = []
+        req_skill_counts = pd.Series(required_skills).value_counts().head(10)
         
-        for skill in all_skills:
-            supply_count = supply.get(skill, 0)
-            demand_count = demand.get(skill, 0)
-            gap = supply_count - demand_count
-            comparison_data.append({
-                'Skill': skill,
-                'Supply': supply_count,
-                'Demand': demand_count,
-                'Gap': gap,
-                'Status': 'Surplus' if gap > 0 else 'Deficit' if gap < 0 else 'Balanced'
-            })
-        
-        comparison_df = pd.DataFrame(comparison_data)
-        
-        # Filter to top 20 skills by demand
-        top_skills_df = comparison_df.nlargest(20, 'Demand')
-        
-        # Create grouped bar chart
-        fig = go.Figure()
-        
-        fig.add_trace(go.Bar(
-            x=top_skills_df['Skill'],
-            y=top_skills_df['Supply'],
-            name='Supply (Available)',
-            marker_color='#4CAF50'
-        ))
-        
-        fig.add_trace(go.Bar(
-            x=top_skills_df['Skill'],
-            y=top_skills_df['Demand'],
-            name='Demand (Required)',
-            marker_color='#F44336'
-        ))
-        
-        fig.update_layout(
-            title='Skills Supply vs Demand Analysis',
-            xaxis_title='Skills',
-            yaxis_title='Count',
-            barmode='group',
-            height=500,
-            showlegend=True
-        )
-        
+        fig = px.bar(x=req_skill_counts.values, y=req_skill_counts.index, orientation='h',
+                    title="Top 10 Required Skills in Projects",
+                    labels={'x': 'Count', 'y': 'Skill'})
         st.plotly_chart(fig, use_container_width=True)
-        
-        # Show skills with biggest deficits
-        deficit_skills = comparison_df[comparison_df['Gap'] < 0].nlargest(10, 'Demand')
-        if not deficit_skills.empty:
-            st.markdown("#### ⚠️ Critical Skills Deficits")
-            for _, row in deficit_skills.iterrows():
-                st.error(f"**{row['Skill']}**: Demand: {row['Demand']} | Supply: {row['Supply']} | Gap: {row['Gap']}")
-        
-        # Show skills with biggest surpluses
-        surplus_skills = comparison_df[comparison_df['Gap'] > 0].nlargest(10, 'Supply')
-        if not surplus_skills.empty:
-            st.markdown("#### ✅ Skills Surpluses")
-            for _, row in surplus_skills.iterrows():
-                st.success(f"**{row['Skill']}**: Supply: {row['Supply']} | Demand: {row['Demand']} | Surplus: {row['Gap']}")
-
-    with tab2:
-        st.markdown("#### Team Composition Analysis")
-        
-        # Experience distribution by role
-        role_exp_data = {}
-        for emp in employees:
-            if emp.current_role not in role_exp_data:
-                role_exp_data[emp.current_role] = []
-            role_exp_data[emp.current_role].append(emp.experience_years)
-        
-        # Create box plot
-        fig = go.Figure()
-        
-        for role, exp_data in role_exp_data.items():
-            fig.add_trace(go.Box(
-                y=exp_data,
-                name=role,
-                boxpoints='all',
-                jitter=0.3,
-                pointpos=-1.8
-            ))
-        
-        fig.update_layout(
-            title='Experience Distribution by Role',
-            yaxis_title='Years of Experience',
-            height=500
-        )
-        
+    
+    # Experience and performance correlation
+    st.markdown("### 👥 Workforce Analytics")
+    
+    emp_data = []
+    for emp in employees:
+        emp_data.append({
+            'Name': emp.name,
+            'Experience': emp.experience_years,
+            'Performance': emp.performance_rating,
+            'Location': emp.location,
+            'Availability': emp.availability
+        })
+    
+    emp_df = pd.DataFrame(emp_data)
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        fig = px.scatter(emp_df, x='Experience', y='Performance', color='Availability',
+                        title="Experience vs Performance by Availability",
+                        hover_data=['Name', 'Location'])
         st.plotly_chart(fig, use_container_width=True)
-        
-        # Location analysis
-        location_data = {}
-        for emp in employees:
-            location_data[emp.location] = location_data.get(emp.location, 0) + 1
-        
-        fig = px.pie(values=list(location_data.values()), names=list(location_data.keys()),
+    
+    with col2:
+        location_counts = emp_df['Location'].value_counts()
+        fig = px.pie(values=location_counts.values, names=location_counts.index,
                     title="Employee Distribution by Location")
         st.plotly_chart(fig, use_container_width=True)
+    
+    # Project analysis
+    st.markdown("### 📋 Project Analytics")
+    
+    proj_data = []
+    for proj in projects:
+        proj_data.append({
+            'Name': proj.name,
+            'Duration': proj.duration_months,
+            'Team Size': proj.team_size,
+            'Urgency': proj.urgency,
+            'Experience Required': proj.experience_required
+        })
+    
+    proj_df = pd.DataFrame(proj_data)
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        fig = px.box(proj_df, x='Urgency', y='Duration', color='Urgency',
+                    title="Project Duration by Urgency Level")
+        st.plotly_chart(fig, use_container_width=True)
+    
+    with col2:
+        fig = px.scatter(proj_df, x='Team Size', y='Experience Required', color='Urgency',
+                        title="Team Size vs Experience Required",
+                        hover_data=['Name'])
+        st.plotly_chart(fig, use_container_width=True)
 
-    with tab3:
-        st.markdown("#### Matching Insights & Predictions")
-        
-        # Run sample matching for analytics
-        master_agent = MasterMatchingAgent()
-        matches = master_agent.find_matches(employees, projects, min_score=0.5)
-        
-        if matches:
-            # Match score distribution
-            match_scores = [m.match_score for m in matches]
-            fig = px.histogram(x=match_scores, nbins=20, 
-                             title="Distribution of Match Scores",
-                             labels={'x': 'Match Score', 'y': 'Frequency'})
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Success rate by project type
-            project_matches = {}
-            for match in matches:
-                project = next(p for p in projects if p.id == match.project_id)
-                if project.client_type not in project_matches:
-                    project_matches[project.client_type] = []
-                project_matches[project.client_type].append(match.match_score)
-            
-            avg_scores = {pt: sum(scores)/len(scores) for pt, scores in project_matches.items()}
-            fig = px.bar(x=list(avg_scores.keys()), y=list(avg_scores.values()),
-                         title="Average Match Score by Project Type",
-                         labels={'x': 'Project Type', 'y': 'Average Match Score'})
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Show top 5 best matches
-            st.markdown("#### 🏆 Top 5 Best Matches")
-            top_matches = sorted(matches, key=lambda x: x.match_score, reverse=True)[:5]
-            
-            for i, match in enumerate(top_matches, 1):
-                employee = next(e for e in employees if e.id == match.employee_id)
-                project = next(p for p in projects if p.id == match.project_id)
-                
-                st.markdown(f"**#{i}: {employee.name} → {project.name}**")
-                st.progress(match.match_score, text=f"Score: {match.match_score:.2f}")
-                st.caption(f"Skills: {', '.join(employee.skills[:3])}...")
-                st.markdown("---")
-
-def render_agent_info():
-    """Detailed information about AI agents"""
-    st.title("🤖 AI Agents Information Hub")
+def render_agents_info_page():
+    """Page with information about the AI agents"""
+    st.title("🤖 AI Agents Information")
     
     st.markdown("""
-    ## Meet Your AI Team
+    ## Specialized AI Agents Powering the Matching System
     
-    This system uses a team of specialized AI agents working together to find optimal matches. 
-    Each agent has a specific role and expertise area.
+    This platform uses a multi-agent architecture where specialized AI agents work together
+    to find optimal matches between employees and projects.
     """)
     
+    # Agent cards
     agents_info = [
         {
             "name": "🎯 Skill Matching Agent",
-            "icon": "🎯",
-            "description": "Analyzes technical skills and requirements using advanced NLP techniques",
-            "capabilities": [
-                "TF-IDF semantic similarity analysis",
-                "Direct skill overlap calculation",
-                "Skill clustering and categorization",
-                "Emerging technology recognition"
-            ],
-            "weight": "35-45% of final score",
-            "techniques": ["Cosine Similarity", "N-gram Analysis", "Skill Taxonomy Matching"]
+            "description": "Analyzes technical skills compatibility using TF-IDF and cosine similarity",
+            "responsibilities": [
+                "Processes skill keywords from both employees and projects",
+                "Calculates semantic similarity between skill sets",
+                "Identifies skill gaps and overlaps",
+                "Provides detailed reasoning about skill matches"
+            ]
         },
         {
             "name": "📅 Availability Agent",
-            "icon": "📅",
-            "description": "Evaluates timing, schedule compatibility, and project timing constraints",
-            "capabilities": [
-                "Calendar gap analysis",
-                "Project timing optimization",
-                "Resource allocation forecasting",
-                "Burnout risk assessment"
-            ],
-            "weight": "20-35% of final score",
-            "techniques": ["Time Series Analysis", "Gap Detection", "Workload Balancing"]
+            "description": "Evaluates timing and scheduling compatibility",
+            "responsibilities": [
+                "Assesses employee availability status",
+                "Calculates optimal project start timing",
+                "Identifies potential scheduling conflicts",
+                "Considers time between projects for optimal resource allocation"
+            ]
         },
         {
             "name": "👨‍💼 Experience Agent",
-            "icon": "👨‍💼",
-            "description": "Assesses experience levels, career progression, and role suitability",
-            "capabilities": [
-                "Experience level matching",
-                "Career path alignment",
-                "Growth potential assessment",
-                "Over/under qualification detection"
-            ],
-            "weight": "15-25% of final score",
-            "techniques": ["Experience Gradient Analysis", "Career Path Modeling", "Skill Progression Tracking"]
+            "description": "Matches experience levels and career progression",
+            "responsibilities": [
+                "Compares employee experience with project requirements",
+                "Identifies optimal experience matches (not too junior, not too senior)",
+                "Considers career development opportunities",
+                "Flags significant experience gaps or overqualification"
+            ]
         },
         {
             "name": "🗺️ Location Agent",
-            "icon": "🗺️",
-            "description": "Handles geographic constraints, remote work compatibility, and travel requirements",
-            "capabilities": [
-                "Geographic proximity analysis",
-                "Remote work compatibility",
-                "Travel time optimization",
-                "Time zone alignment"
-            ],
-            "weight": "5-20% of final score",
-            "techniques": ["Geospatial Analysis", "Remote Work Scoring", "Travel Time Optimization"]
+            "description": "Handles geographic and remote work considerations",
+            "responsibilities": [
+                "Matches physical locations and remote work compatibility",
+                "Identifies regional proximity for reduced travel needs",
+                "Flags significant location mismatches",
+                "Supports distributed team configurations"
+            ]
         },
         {
             "name": "⭐ Performance Agent",
-            "icon": "⭐",
-            "description": "Evaluates past performance, quality metrics, and reliability factors",
-            "capabilities": [
-                "Performance rating analysis",
-                "Quality assurance scoring",
-                "Reliability assessment",
-                "Peer feedback integration"
-            ],
-            "weight": "Bonus/Penalty modifier",
-            "techniques": ["Performance Trend Analysis", "Peer Rating Integration", "Quality Metrics"]
+            "description": "Incorporates performance history into matching",
+            "responsibilities": [
+                "Applies performance-based bonuses or adjustments",
+                "Prioritizes high performers for critical projects",
+                "Supports development opportunities for improving employees",
+                "Maintains quality standards through performance consideration"
+            ]
         },
         {
-            "name": "🧠 Master Coordination Agent",
-            "icon": "🧠",
-            "description": "Orchestrates all specialized agents and makes final recommendations",
-            "capabilities": [
-                "Dynamic weight adjustment",
-                "Conflict resolution",
-                "Confidence level calculation",
-                "Multi-criteria optimization"
-            ],
-            "weight": "Final decision maker",
-            "techniques": ["Ensemble Learning", "Multi-objective Optimization", "Confidence Scoring"]
+            "name": "🧠 Master Matching Agent",
+            "description": "Orchestrates all specialized agents for final recommendations",
+            "responsibilities": [
+                "Coordinates all specialized agent analyses",
+                "Applies dynamic weighting based on project urgency",
+                "Generates comprehensive match scores",
+                "Provides final recommendations with confidence levels"
+            ]
         }
     ]
     
     for agent in agents_info:
-        with st.expander(f"{agent['icon']} {agent['name']}", expanded=True):
-            col1, col2 = st.columns([2, 1])
-            
-            with col1:
-                st.markdown(f"**Description:** {agent['description']}")
-                st.markdown("**Key Capabilities:**")
-                for capability in agent['capabilities']:
-                    st.markdown(f"• {capability}")
-            
-            with col2:
-                st.metric("Weight in Scoring", agent['weight'])
-                st.markdown("**Techniques Used:**")
-                for technique in agent['techniques']:
-                    st.markdown(f"📊 {technique}")
-    
-    st.markdown("---")
-    
-    # Agent interaction demo
-    st.markdown("### 🎭 Live Agent Interaction Demo")
-    
-    if st.button("🔄 Run Agent Simulation", type="primary"):
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        # Simulate agent workflow
-        agents = ["Skill Matching", "Availability", "Experience", "Location", "Performance", "Master"]
-        for i, agent in enumerate(agents):
-            progress = (i + 1) / len(agents)
-            progress_bar.progress(progress)
-            status_text.text(f"🤖 {agent} Agent processing...")
-            st.session_state[f"agent_{i}"] = True
-            st.rerun()
-            import time
-            time.sleep(0.5)
-        
-        progress_bar.empty()
-        status_text.empty()
-        st.success("✅ All agents completed their analysis successfully!")
-        
-        # Show agent results
-        st.markdown("#### 📊 Agent Contribution Breakdown")
-        
-        contributions = {
-            "Skill Matching": 40,
-            "Availability": 25,
-            "Experience": 20,
-            "Location": 10,
-            "Performance": 5
-        }
-        
-        fig = px.pie(values=list(contributions.values()), names=list(contributions.keys()),
-                    title="Typical Agent Contribution to Final Score")
-        st.plotly_chart(fig, use_container_width=True)
+        with st.expander(agent["name"]):
+            st.markdown(f"**Description:** {agent['description']}")
+            st.markdown("**Key Responsibilities:**")
+            for responsibility in agent["responsibilities"]:
+                st.markdown(f"- {responsibility}")
 
 # Main application logic
 def main():
-    """Main application entry point"""
-    
+    """Main application function"""
     # Initialize session state
     if 'employees' not in st.session_state:
         st.session_state.employees = DataManager.get_sample_employees()
+    
     if 'projects' not in st.session_state:
         st.session_state.projects = DataManager.get_sample_projects()
     
     # Render sidebar and get current page
     current_page = render_sidebar()
     
-    # Render appropriate page based on selection
+    # Render the appropriate page based on selection
     if current_page == "🏠 Dashboard":
         render_dashboard()
     elif current_page == "🎯 AI Matching":
         render_matching_page()
     elif current_page == "👥 Employees":
-        render_employee_management()
+        render_employees_page()
     elif current_page == "📋 Projects":
-        render_project_management()
+        render_projects_page()
     elif current_page == "📊 Analytics":
-        render_analytics()
+        render_analytics_page()
     elif current_page == "🤖 AI Agents Info":
-        render_agent_info()
+        render_agents_info_page()
 
 if __name__ == "__main__":
     main()
